@@ -353,7 +353,6 @@ Tavily의 검색 점수만으로 최종 추천하지 않는다. 상세 페이지
 
 정확한 영양성분이나 의료적 조언으로 표현하지 않는다. 발표에서도 “AI 기반 참고용 추정치”라고 명시한다.
 
-
 **입력**
 
 ```json
@@ -670,7 +669,7 @@ refrigerator-recipe-chatbot/
 └── PRD.md
 ```
 
-FastAPI를 2단계에서 도입할 때만 `api/main.py`, `api/routes/recommendations.py`를 추가한다. Tool 로직은 `api/`로 이동하지 않고 서비스 계층을 재사용한다.
+rFastAPI를 2단계에서 도입할 때만 `api/main.py`, `api/routes/recommendations.py`를 추가한다. Tool 로직은 `api/`로 이동하지 않고 서비스 계층을 재사용한다.
 
 ## 16. 팀원 역할 분담
 
