@@ -1,0 +1,7 @@
+gradio
+openai
+tavily-python
+beautifulsoup4
+httpx
+pydantic
+python-dotenv
