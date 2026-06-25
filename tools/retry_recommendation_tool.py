@@ -94,11 +94,14 @@ def _meets_latest_conditions(
     valid_ingredients: set[str],
     category: Category,
 ) -> bool:
-    """Recheck every cache/search result against PRD 6.2 mandatory rules."""
+    """Recheck every cache/search result against PRD 6.2 mandatory rules.
+
+    Serving count is intentionally *not* a reject criterion: 만개의레시피 rarely
+    has 1-serving recipes, so any serving count is accepted and amounts are later
+    normalized to one serving by ``services.serving_scaler``.
+    """
 
     if category != "상관없음" and candidate.category != category:
-        return False
-    if candidate.servings != 1:
         return False
     if candidate.cooking_time_minutes > 30:
         return False

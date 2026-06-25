@@ -171,10 +171,13 @@ class RetryRecommendationToolTest(unittest.TestCase):
         self.assertEqual(result.recommendation.title, "두부조림")
         self.assertEqual(len(result.warnings), 1)
 
-    def test_two_serving_candidate_is_excluded_on_retry(self) -> None:
+    def test_multi_serving_candidate_is_accepted_on_retry(self) -> None:
+        # New policy: serving count is no longer a reject criterion. Any serving
+        # count is accepted (amounts are normalized to 1 serving by the scaler),
+        # so the first ranked candidate wins regardless of its serving size.
         def search_pipeline(**_: object) -> list[RecommendationResult]:
             return [
-                make_candidate(601, "2인분 두부조림", servings=2, ingredients=["두부"]),
+                make_candidate(601, "4인분 두부조림", servings=4, ingredients=["두부"]),
                 make_candidate(602, "1인분 두부조림", servings=1, ingredients=["두부"]),
             ]
 
@@ -184,8 +187,8 @@ class RetryRecommendationToolTest(unittest.TestCase):
         )
 
         self.assertEqual(result.status, "SUCCESS")
-        self.assertEqual(result.recommendation.title, "1인분 두부조림")
-        self.assertEqual(result.recommendation.servings, 1)
+        self.assertEqual(result.recommendation.title, "4인분 두부조림")
+        self.assertEqual(result.recommendation.servings, 4)
 
     def test_pipeline_failure_is_not_reported_as_candidate_exhaustion(self) -> None:
         def broken_pipeline(**_: object) -> list[RecommendationResult]:
