@@ -216,3 +216,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# oh-my-claudecode (OMC) / Claude Code - local agent state, do not commit
+.omc/
+.claude/
