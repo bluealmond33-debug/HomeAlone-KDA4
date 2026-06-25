@@ -117,7 +117,7 @@ if gr is not None:
             retry_btn = gr.Button("재추천")
             reset_btn = gr.Button("초기화")
 
-        chatbot = gr.Chatbot(label="대화", type="messages")
+        chatbot = gr.Chatbot(label="대화")
         result_md = gr.Markdown()
         state = gr.State(INITIAL_STATE.copy())
 
