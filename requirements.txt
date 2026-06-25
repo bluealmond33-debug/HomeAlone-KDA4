@@ -1,7 +1,1 @@
-gradio
-openai
-tavily-python
-beautifulsoup4
-httpx
-pydantic
-python-dotenv
+pydantic>=2.8,<3
