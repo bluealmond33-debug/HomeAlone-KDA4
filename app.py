@@ -9,9 +9,15 @@ from config import settings
 from tools.ingredient_validator_tool import ingredient_validator_tool
 
 MAX_INGREDIENT_BOXES = 20
+INITIAL_INGREDIENT_BOXES = 3
+DEFAULT_INGREDIENT_PLACEHOLDERS = [
+    "식재료만 입력해주세요(예시: 김치)",
+    "식재료만 입력해주세요(예시: 두부)",
+    "식재료만 입력해주세요(예시: 계란)",
+]
 CATEGORY_CHOICES = ["한식", "중식", "일식", "양식", "분식", "상관없음"]
 INITIAL_STATE = {"previous_recipe_urls": [], "last_valid_ingredients": []}
-INITIAL_READY_MESSAGE = "재료를 입력하고 카테고리를 고르면 추천 준비 상태가 여기 표시됩니다."
+INITIAL_READY_MESSAGE = "기본 재료 칸 3개가 준비됐어요. 재료를 넣고 카테고리를 골라주세요."
 
 
 def _update(**kwargs):
@@ -22,6 +28,12 @@ def _update(**kwargs):
 
 def collect_ingredient_values(ingredient_values: list[str]) -> list[str]:
     return [value.strip() for value in ingredient_values if value and value.strip()]
+
+
+def get_ingredient_placeholder(index: int) -> str:
+    if index < len(DEFAULT_INGREDIENT_PLACEHOLDERS):
+        return DEFAULT_INGREDIENT_PLACEHOLDERS[index]
+    return "식재료만 입력해주세요(예시: 감자)"
 
 
 def build_summary(ingredients: list[str], category: str, validation_result) -> str:
@@ -100,7 +112,10 @@ def add_ingredient_box(visible_count: int):
 
 
 def reset_state():
-    textbox_updates = [_update(value="", visible=index == 0) for index in range(MAX_INGREDIENT_BOXES)]
+    textbox_updates = [
+        _update(value="", visible=index < INITIAL_INGREDIENT_BOXES)
+        for index in range(MAX_INGREDIENT_BOXES)
+    ]
     return [
         *textbox_updates,
         "상관없음",
@@ -108,8 +123,8 @@ def reset_state():
         "",
         INITIAL_READY_MESSAGE,
         INITIAL_STATE.copy(),
-        1,
-        gr.update(interactive=True),
+        INITIAL_INGREDIENT_BOXES,
+        _update(interactive=True),
     ]
 
 
@@ -119,14 +134,14 @@ if gr is not None:
         gr.Markdown("식재료는 한 칸에 하나씩 입력하고, 더 필요하면 **다음** 버튼으로 입력 칸을 추가하세요.")
         reset_btn = gr.Button("초기화")
 
-        visible_count = gr.State(1)
+        visible_count = gr.State(INITIAL_INGREDIENT_BOXES)
         ingredient_boxes = []
         for index in range(MAX_INGREDIENT_BOXES):
             ingredient_boxes.append(
                 gr.Textbox(
                     label=f"식재료 {index + 1}",
-                    placeholder="식재료만 입력해주세요(예시: 김치)",
-                    visible=index == 0,
+                    placeholder=get_ingredient_placeholder(index),
+                    visible=index < INITIAL_INGREDIENT_BOXES,
                 )
             )
 
