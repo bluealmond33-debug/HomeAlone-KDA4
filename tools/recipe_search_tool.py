@@ -1,105 +1,69 @@
 import re
-from urllib.parse import urlparse, urlunparse
 
-from clients.tavily_client import get_tavily_client
-
-
-ALLOWED_HOSTS = {"10000recipe.com", "www.10000recipe.com"}
-RECIPE_PATH_PATTERN = re.compile(r"^/recipe/\d+$")
+from clients.openai_client import get_openai_client, get_openai_model
 
 
-def build_recipe_query(valid_ingredients: list[str], category: str) -> str:
-    ingredient_text = " ".join(valid_ingredients)
+def normalize_cooking_time(cooking_time) -> int:
 
-    if category and category != "상관없음":
-        return f"{ingredient_text} {category} 1인분 2인분 30분 이내 초급 아무나 레시피"
+    if isinstance(cooking_time, int):
+        return cooking_time
 
-    return f"{ingredient_text} 1인분 2인분 30분 이내 초급 아무나 레시피"
+    if not cooking_time:
+        return 30
 
+    numbers = re.findall(r"\d+", str(cooking_time))
 
-def normalize_recipe_url(url: str) -> str | None:
-    parsed = urlparse(url)
+    if not numbers:
+        return 30
 
-    if parsed.scheme != "https":
-        return None
-
-    if parsed.netloc not in ALLOWED_HOSTS:
-        return None
-
-    if not RECIPE_PATH_PATTERN.match(parsed.path):
-        return None
-
-    return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
+    return max(map(int, numbers))
 
 
 def recipe_search_tool(
     valid_ingredients: list[str],
-    category: str = "상관없음",
-    exclude_urls: list[str] | None = None,
-    max_results: int = 5,) -> dict:
-    if exclude_urls is None:
-        exclude_urls = []
+    category: str,
+    cooking_time,
+) -> str:
 
     if not valid_ingredients:
-        return {
-            "query": "",
-            "candidates": [],
-            "error": "유효 재료가 없습니다.",
-        }
+        return "추천 가능한 메뉴가 없습니다."
 
-    query = build_recipe_query(valid_ingredients, category)
+    max_time = normalize_cooking_time(cooking_time)
 
-    normalized_exclude_urls = set()
-    for url in exclude_urls:
-        clean_url = normalize_recipe_url(url)
-        if clean_url:
-            normalized_exclude_urls.add(clean_url)
+    ingredients = ", ".join(valid_ingredients)
 
-    try:
-        tavily_client = get_tavily_client()
+    prompt = f"""
+너는 1인 가구 레시피 추천 AI이다.
 
-        response = tavily_client.search(
-            query=query,
-            search_depth="basic",
-            max_results=max_results,
-            include_answer=False,
-            include_domains=["10000recipe.com"],
-        )
+사용 가능한 재료
+{ingredients}
 
-    except Exception as e:
-        return {
-            "query": query,
-            "candidates": [],
-            "error": f"Tavily 검색 실패: {e}",
-        }
+카테고리
+{category}
 
-    candidates = []
-    seen_urls = set()
+조건
+- 반드시 1인분
+- 조리시간은 {max_time}분 이내
+- 실제 만개의레시피에서 검색 가능한 메뉴
+- 메뉴명만 출력
+- 설명 금지
+- 번호 금지
+- 따옴표 금지
 
-    for item in response.get("results", []):
-        clean_url = normalize_recipe_url(item.get("url", ""))
+예시
 
-        if clean_url is None:
-            continue
+김치볶음밥
+토마토계란볶음
+계란국
 
-        if clean_url in seen_urls:
-            continue
+메뉴명 하나만 출력해.
+"""
 
-        if clean_url in normalized_exclude_urls:
-            continue
+    client = get_openai_client()
 
-        seen_urls.add(clean_url)
+    response = client.responses.create(
+        model=get_openai_model(),
+        input=prompt,
+    )
 
-        candidates.append(
-            {
-                "title": item.get("title", ""),
-                "url": clean_url,
-                "search_score": item.get("score"),
-            }
-        )
-
-    return {
-        "query": query,
-        "candidates": candidates,
-        "error": None,
-    }
+    return response.output_text.strip()
