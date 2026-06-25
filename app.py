@@ -83,9 +83,21 @@ def build_next_box_status(visible_count: int) -> str:
 
 
 def build_next_exclude_box_status(visible_count: int) -> str:
+    if visible_count <= 0:
+        return "제외할 재료가 없으면 그대로 추천해도 돼요."
     if visible_count >= MAX_EXCLUDE_BOXES:
         return "제외 재료 칸 20개가 모두 열렸어요."
     return f"제외 재료 칸 {visible_count}개 준비 완료. 없는 재료를 한 칸에 하나씩 넣어주세요."
+
+
+def build_remove_box_status(visible_count: int, *, is_exclude: bool) -> str:
+    if is_exclude:
+        if visible_count <= 0:
+            return "제외할 재료가 없으면 그대로 추천해도 돼요."
+        return f"제외 재료 칸 {visible_count}개가 남았어요."
+    if visible_count <= 0:
+        return "식재료 칸을 모두 지웠어요. 식재료 추가로 다시 열 수 있어요."
+    return f"재료 칸 {visible_count}개가 남았어요."
 
 
 def build_category_status(*args) -> str:
@@ -182,14 +194,85 @@ def add_ingredient_box(visible_count: int):
     new_count = min(MAX_INGREDIENT_BOXES, visible_count + 1)
     next_button_update = _update(interactive=new_count < MAX_INGREDIENT_BOXES)
     textbox_updates = [_update(visible=index < new_count) for index in range(MAX_INGREDIENT_BOXES)]
-    return [new_count, next_button_update, *textbox_updates, build_next_box_status(new_count)]
+    delete_button_updates = [
+        _update(visible=index < new_count) for index in range(MAX_INGREDIENT_BOXES)
+    ]
+    return [
+        new_count,
+        next_button_update,
+        *textbox_updates,
+        *delete_button_updates,
+        build_next_box_status(new_count),
+    ]
 
 
 def add_exclude_box(visible_count: int):
     new_count = min(MAX_EXCLUDE_BOXES, visible_count + 1)
     next_button_update = _update(interactive=new_count < MAX_EXCLUDE_BOXES)
     textbox_updates = [_update(visible=index < new_count) for index in range(MAX_EXCLUDE_BOXES)]
-    return [new_count, next_button_update, *textbox_updates, build_next_exclude_box_status(new_count)]
+    delete_button_updates = [
+        _update(visible=index < new_count) for index in range(MAX_EXCLUDE_BOXES)
+    ]
+    return [
+        new_count,
+        next_button_update,
+        *textbox_updates,
+        *delete_button_updates,
+        build_next_exclude_box_status(new_count),
+    ]
+
+
+def _remove_box(
+    remove_index: int,
+    visible_count: int,
+    values: list[str],
+    *,
+    max_boxes: int,
+    is_exclude: bool,
+):
+    visible_count = max(0, min(max_boxes, int(visible_count or 0)))
+    active_values = list(values[:visible_count])
+    if 0 <= remove_index < visible_count:
+        del active_values[remove_index]
+
+    new_count = len(active_values)
+    padded_values = active_values + [""] * (max_boxes - new_count)
+    next_button_update = _update(interactive=new_count < max_boxes)
+    textbox_updates = [
+        _update(value=padded_values[index], visible=index < new_count)
+        for index in range(max_boxes)
+    ]
+    delete_button_updates = [
+        _update(visible=index < new_count) for index in range(max_boxes)
+    ]
+
+    return [
+        new_count,
+        next_button_update,
+        *textbox_updates,
+        *delete_button_updates,
+        build_remove_box_status(new_count, is_exclude=is_exclude),
+    ]
+
+
+def remove_ingredient_box(remove_index: int, visible_count: int, *values):
+    return _remove_box(
+        remove_index,
+        visible_count,
+        list(values),
+        max_boxes=MAX_INGREDIENT_BOXES,
+        is_exclude=False,
+    )
+
+
+def remove_exclude_box(remove_index: int, visible_count: int, *values):
+    return _remove_box(
+        remove_index,
+        visible_count,
+        list(values),
+        max_boxes=MAX_EXCLUDE_BOXES,
+        is_exclude=True,
+    )
 
 
 def reset_state():
@@ -197,13 +280,23 @@ def reset_state():
         _update(value="", visible=index < INITIAL_INGREDIENT_BOXES)
         for index in range(MAX_INGREDIENT_BOXES)
     ]
+    ingredient_delete_updates = [
+        _update(visible=index < INITIAL_INGREDIENT_BOXES)
+        for index in range(MAX_INGREDIENT_BOXES)
+    ]
     exclude_updates = [
         _update(value="", visible=index < INITIAL_EXCLUDE_BOXES)
         for index in range(MAX_EXCLUDE_BOXES)
     ]
+    exclude_delete_updates = [
+        _update(visible=index < INITIAL_EXCLUDE_BOXES)
+        for index in range(MAX_EXCLUDE_BOXES)
+    ]
     return [
         *textbox_updates,
+        *ingredient_delete_updates,
         *exclude_updates,
+        *exclude_delete_updates,
         "상관없음",
         [],
         "",
@@ -219,32 +312,42 @@ def reset_state():
 if gr is not None:
     with gr.Blocks(title="냉털 레시피 챗봇") as demo:
         gr.Markdown("# 냉털 레시피 챗봇\n자취생용 레시피 추천 MVP")
-        gr.Markdown("식재료는 한 칸에 하나씩 입력하고, 더 필요하면 **다음** 버튼으로 입력 칸을 추가하세요.")
+        gr.Markdown("식재료는 한 칸에 하나씩 입력하고, 더 필요하면 **식재료 추가** 버튼으로 입력 칸을 추가하세요.")
         reset_btn = gr.Button("초기화")
 
         visible_count = gr.State(INITIAL_INGREDIENT_BOXES)
         exclude_visible_count = gr.State(INITIAL_EXCLUDE_BOXES)
         ingredient_boxes = []
+        ingredient_delete_buttons = []
         for index in range(MAX_INGREDIENT_BOXES):
-            ingredient_boxes.append(
-                gr.Textbox(
-                    label=f"식재료 {index + 1}",
-                    placeholder=get_ingredient_placeholder(index),
-                    visible=index < INITIAL_INGREDIENT_BOXES,
+            with gr.Row():
+                ingredient_boxes.append(
+                    gr.Textbox(
+                        label=f"식재료 {index + 1}",
+                        placeholder=get_ingredient_placeholder(index),
+                        visible=index < INITIAL_INGREDIENT_BOXES,
+                    )
                 )
-            )
+                ingredient_delete_buttons.append(
+                    gr.Button("🗑", visible=index < INITIAL_INGREDIENT_BOXES)
+                )
 
-        next_btn = gr.Button("다음")
+        next_btn = gr.Button("식재료 추가")
         gr.Markdown("추천에서 빼고 싶은 재료가 있으면 아래에 입력하세요.")
         exclude_boxes = []
+        exclude_delete_buttons = []
         for index in range(MAX_EXCLUDE_BOXES):
-            exclude_boxes.append(
-                gr.Textbox(
-                    label=f"제외 재료 {index + 1}",
-                    placeholder=get_exclude_placeholder(index),
-                    visible=index < INITIAL_EXCLUDE_BOXES,
+            with gr.Row():
+                exclude_boxes.append(
+                    gr.Textbox(
+                        label=f"제외 재료 {index + 1}",
+                        placeholder=get_exclude_placeholder(index),
+                        visible=index < INITIAL_EXCLUDE_BOXES,
+                    )
                 )
-            )
+                exclude_delete_buttons.append(
+                    gr.Button("🗑", visible=index < INITIAL_EXCLUDE_BOXES)
+                )
 
         exclude_next_btn = gr.Button("제외 재료 추가")
         category = gr.Dropdown(
@@ -255,7 +358,7 @@ if gr is not None:
         ready_md = gr.Markdown(INITIAL_READY_MESSAGE)
 
         recommend_btn = gr.Button("냉장고 털기 시작")
-        retry_btn = gr.Button("다시 추천")
+        retry_btn = gr.Button("다른 추천 받기")
 
         chatbot = gr.Chatbot(label="대화")
         result_md = gr.Markdown()
@@ -264,13 +367,57 @@ if gr is not None:
         next_btn.click(
             add_ingredient_box,
             inputs=[visible_count],
-            outputs=[visible_count, next_btn, *ingredient_boxes, ready_md],
+            outputs=[
+                visible_count,
+                next_btn,
+                *ingredient_boxes,
+                *ingredient_delete_buttons,
+                ready_md,
+            ],
         )
         exclude_next_btn.click(
             add_exclude_box,
             inputs=[exclude_visible_count],
-            outputs=[exclude_visible_count, exclude_next_btn, *exclude_boxes, ready_md],
+            outputs=[
+                exclude_visible_count,
+                exclude_next_btn,
+                *exclude_boxes,
+                *exclude_delete_buttons,
+                ready_md,
+            ],
         )
+        for index, delete_btn in enumerate(ingredient_delete_buttons):
+            delete_btn.click(
+                lambda visible, *values, index=index: remove_ingredient_box(
+                    index,
+                    visible,
+                    *values,
+                ),
+                inputs=[visible_count, *ingredient_boxes],
+                outputs=[
+                    visible_count,
+                    next_btn,
+                    *ingredient_boxes,
+                    *ingredient_delete_buttons,
+                    ready_md,
+                ],
+            )
+        for index, delete_btn in enumerate(exclude_delete_buttons):
+            delete_btn.click(
+                lambda visible, *values, index=index: remove_exclude_box(
+                    index,
+                    visible,
+                    *values,
+                ),
+                inputs=[exclude_visible_count, *exclude_boxes],
+                outputs=[
+                    exclude_visible_count,
+                    exclude_next_btn,
+                    *exclude_boxes,
+                    *exclude_delete_buttons,
+                    ready_md,
+                ],
+            )
         category.change(
             build_category_status,
             inputs=[*ingredient_boxes, category],
@@ -290,7 +437,9 @@ if gr is not None:
             reset_state,
             outputs=[
                 *ingredient_boxes,
+                *ingredient_delete_buttons,
                 *exclude_boxes,
+                *exclude_delete_buttons,
                 category,
                 chatbot,
                 result_md,
