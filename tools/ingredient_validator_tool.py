@@ -18,17 +18,28 @@ class IngredientClassifier(Protocol):
     def classify_unknown_items(self, items: list[str]) -> list[dict]: ...
 
 
+def _data_path(filename: str, data_dir: Path | None = None) -> Path:
+    return (data_dir or DATA_DIR) / filename
+
+
 def _load_json(path: Path):
     with path.open("r", encoding="utf-8") as fp:
         return json.load(fp)
 
 
-def load_known_ingredients() -> set[str]:
-    return set(_load_json(DATA_DIR / "known_ingredients.json"))
+def _write_json(path: Path, data):
+    path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
-def load_aliases() -> dict[str, str]:
-    return _load_json(DATA_DIR / "ingredient_aliases.json")
+def load_known_ingredients(data_dir: Path | None = None) -> set[str]:
+    return set(_load_json(_data_path("known_ingredients.json", data_dir)))
+
+
+def load_aliases(data_dir: Path | None = None) -> dict[str, str]:
+    return _load_json(_data_path("ingredient_aliases.json", data_dir))
 
 
 def normalize_item(item: str, aliases: dict[str, str]) -> str:
@@ -60,14 +71,49 @@ def parse_ingredient_input(payload: str | list[str] | dict) -> list[str]:
     return [token for token in SEPARATOR_RE.split(payload) if token.strip()]
 
 
+def cache_valid_ingredient_judgments(
+    judgments: list[dict],
+    aliases: dict[str, str],
+    known_ingredients: set[str],
+    *,
+    data_dir: Path | None = None,
+) -> bool:
+    updated_aliases = dict(aliases)
+    updated_ingredients = set(known_ingredients)
+
+    for judgment in judgments:
+        if not judgment.get("is_valid"):
+            continue
+
+        item = normalize_item(str(judgment.get("item", "")), aliases)
+        normalized_name = normalize_item(str(judgment.get("normalized_name") or item), aliases)
+        if not normalized_name:
+            continue
+
+        updated_ingredients.add(normalized_name)
+        if item and item != normalized_name:
+            updated_aliases[item] = normalized_name
+
+    ingredients_changed = updated_ingredients != known_ingredients
+    aliases_changed = updated_aliases != aliases
+    if ingredients_changed:
+        _write_json(_data_path("known_ingredients.json", data_dir), sorted(updated_ingredients))
+    if aliases_changed:
+        _write_json(_data_path("ingredient_aliases.json", data_dir), dict(sorted(updated_aliases.items())))
+
+    return ingredients_changed or aliases_changed
+
+
 def ingredient_validator_tool(
     payload: str | list[str] | dict,
     *,
     classifier: IngredientClassifier | None = None,
+    persist_new_ingredients: bool = False,
+    data_dir: Path | None = None,
 ) -> IngredientValidationResult:
     raw_items = parse_ingredient_input(payload)
-    aliases = load_aliases()
-    known_ingredients = load_known_ingredients()
+    aliases = load_aliases(data_dir)
+    known_ingredients = load_known_ingredients(data_dir)
 
     raw_total_chars = sum(len((item or "").strip()) for item in raw_items)
     if raw_total_chars == 0:
@@ -110,6 +156,14 @@ def ingredient_validator_tool(
                 {"item": item, "is_valid": False, "reason": "판별 보류"}
                 for item in unknown_items
             ]
+        else:
+            if persist_new_ingredients:
+                cache_valid_ingredient_judgments(
+                    judgments,
+                    aliases,
+                    known_ingredients,
+                    data_dir=data_dir,
+                )
 
         for judgment in judgments:
             item = normalize_item(str(judgment.get("item", "")), aliases)

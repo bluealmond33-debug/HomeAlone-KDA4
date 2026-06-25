@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from tools.ingredient_validator_tool import ingredient_validator_tool, parse_ingredient_input
@@ -32,20 +34,93 @@ def test_ingredient_validator_applies_alias_and_deduplicates_known_ingredients()
 def test_ingredient_validator_uses_classifier_for_unknown_items():
     classifier = FakeClassifier(
         response=[
-            {"item": "두부", "is_valid": True, "normalized_name": "두부"},
+            {"item": "테스트재료", "is_valid": True, "normalized_name": "테스트재료"},
             {"item": "핸드폰", "is_valid": False, "reason": "식재료가 아님"},
         ]
     )
 
     result = ingredient_validator_tool(
-        {"ingredients": ["김치", "두부", "핸드폰"]},
+        {"ingredients": ["김치", "테스트재료", "핸드폰"]},
         classifier=classifier,
     )
 
-    assert classifier.calls == [["두부", "핸드폰"]]
-    assert result.valid_ingredients == ["김치", "두부"]
+    assert classifier.calls == [["테스트재료", "핸드폰"]]
+    assert result.valid_ingredients == ["김치", "테스트재료"]
     assert [(item.item, item.reason) for item in result.excluded_items] == [("핸드폰", "식재료가 아님")]
     assert result.warnings == []
+
+
+def test_ingredient_validator_uses_known_cache_and_aliases_before_classifier():
+    classifier = FakeClassifier()
+
+    result = ingredient_validator_tool(
+        {"ingredients": ["두부", "밥", "케찹"]},
+        classifier=classifier,
+    )
+
+    assert classifier.calls == []
+    assert result.valid_ingredients == ["두부", "쌀", "케첩"]
+    assert result.excluded_items == []
+    assert result.warnings == []
+
+
+def test_ingredient_validator_persists_new_valid_classifier_results(tmp_path):
+    (tmp_path / "known_ingredients.json").write_text(
+        json.dumps(["김치"], ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (tmp_path / "ingredient_aliases.json").write_text(
+        json.dumps({}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    classifier = FakeClassifier(
+        response=[
+            {"item": "초당옥수수", "is_valid": True, "normalized_name": "옥수수"},
+            {"item": "노트북", "is_valid": False, "reason": "식재료가 아님"},
+        ]
+    )
+
+    result = ingredient_validator_tool(
+        {"ingredients": ["김치", "초당옥수수", "노트북"]},
+        classifier=classifier,
+        persist_new_ingredients=True,
+        data_dir=tmp_path,
+    )
+
+    known = json.loads((tmp_path / "known_ingredients.json").read_text(encoding="utf-8"))
+    aliases = json.loads((tmp_path / "ingredient_aliases.json").read_text(encoding="utf-8"))
+    assert result.valid_ingredients == ["김치", "옥수수"]
+    assert [(item.item, item.reason) for item in result.excluded_items] == [("노트북", "식재료가 아님")]
+    assert "옥수수" in known
+    assert aliases["초당옥수수"] == "옥수수"
+
+
+def test_ingredient_validator_does_not_persist_new_results_without_flag(tmp_path):
+    (tmp_path / "known_ingredients.json").write_text(
+        json.dumps(["김치"], ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (tmp_path / "ingredient_aliases.json").write_text(
+        json.dumps({}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    classifier = FakeClassifier(
+        response=[
+            {"item": "초당옥수수", "is_valid": True, "normalized_name": "옥수수"},
+        ]
+    )
+
+    result = ingredient_validator_tool(
+        {"ingredients": ["초당옥수수"]},
+        classifier=classifier,
+        data_dir=tmp_path,
+    )
+
+    known = json.loads((tmp_path / "known_ingredients.json").read_text(encoding="utf-8"))
+    aliases = json.loads((tmp_path / "ingredient_aliases.json").read_text(encoding="utf-8"))
+    assert result.valid_ingredients == ["옥수수"]
+    assert known == ["김치"]
+    assert aliases == {}
 
 
 def test_ingredient_validator_falls_back_to_hold_when_classifier_fails():
