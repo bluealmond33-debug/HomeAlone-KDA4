@@ -1,12 +1,100 @@
+"""OpenAI client wrappers for the recipe chatbot.
+
+This module hosts multiple thin OpenAI wrappers that share a single client:
+
+- Calorie estimation (``estimate_calories_raw`` / ``CalorieEstimator``).
+- Ingredient classification (``OpenAIIngredientClassifier``).
+
+Each wrapper is intentionally minimal so callers (tools) can depend on a small,
+mockable surface and unit tests can monkeypatch the raw call without a real API
+key or network access. API keys are read from ``settings`` (server env only) and
+are never logged; raw user input is never logged either.
+"""
+
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from openai import OpenAI
 
 from config import settings
 
+
+# ---------------------------------------------------------------------------
+# Calorie estimation
+# ---------------------------------------------------------------------------
+
+# Where the calorie estimation prompt (system instructions) lives.
+_CALORIE_PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "calorie_estimation.md"
+
+# Cap output so a malformed/runaway response cannot consume an unbounded budget.
+_CALORIE_MAX_OUTPUT_TOKENS = 500
+
+_client: OpenAI | None = None
+
+
+def get_openai_client() -> OpenAI:
+    """Return a lazily-created, process-wide OpenAI client.
+
+    Shared by all OpenAI wrappers in this module. The API key is read from
+    ``settings.openai_api_key`` (server environment only) and never hardcoded.
+    A request timeout is applied so a hung call cannot block the chatbot.
+    """
+    global _client
+    if _client is None:
+        _client = OpenAI(
+            api_key=settings.openai_api_key,
+            timeout=float(settings.request_timeout_seconds),
+        )
+    return _client
+
+
+def load_calorie_prompt() -> str:
+    """Load the calorie estimation system prompt from ``prompts/``."""
+    return _CALORIE_PROMPT_PATH.read_text(encoding="utf-8")
+
+
+def estimate_calories_raw(user_payload: str) -> str:
+    """Call the OpenAI Responses API for a calorie estimate and return raw text.
+
+    This is the single thin, injectable seam that ``calorie_estimator_tool``
+    depends on. Tests monkeypatch this function (or pass their own callable) so
+    no real API key or network is required.
+
+    Args:
+        user_payload: A JSON string containing only ``menu_name``, ``ingredients``
+            (name + amount) and ``servings``.
+
+    Returns:
+        The model's raw response text, expected to be a JSON object string.
+    """
+    client = get_openai_client()
+    response = client.responses.create(
+        model=settings.openai_model,
+        instructions=load_calorie_prompt(),
+        input=user_payload,
+        text={"format": {"type": "json_object"}},
+        max_output_tokens=_CALORIE_MAX_OUTPUT_TOKENS,
+    )
+    return response.output_text
+
+
+class CalorieEstimator:
+    """Object wrapper around :func:`estimate_calories_raw`.
+
+    Provided for callers/tests that prefer dependency injection over module-level
+    monkeypatching. ``calorie_estimator_tool`` uses the function form by default.
+    """
+
+    def estimate(self, user_payload: str) -> str:
+        return estimate_calories_raw(user_payload)
+
+
+# ---------------------------------------------------------------------------
+# Ingredient classification
+# ---------------------------------------------------------------------------
 
 SYSTEM_PROMPT = """너는 한국어 식재료 판별기다.
 입력된 항목마다 음식 조리에 쓰는 식재료인지 판단한다.
