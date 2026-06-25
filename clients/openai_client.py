@@ -71,10 +71,12 @@ def estimate_calories_raw(user_payload: str) -> str:
         The model's raw response text, expected to be a JSON object string.
     """
     client = get_openai_client()
+    # The Responses API requires the word "json" in the input message when
+    # ``text.format`` is ``json_object`` (the instructions alone do not satisfy it).
     response = client.responses.create(
         model=settings.openai_model,
         instructions=load_calorie_prompt(),
-        input=user_payload,
+        input=f"아래 데이터로 1인분 예상 칼로리를 추정해 JSON 객체 하나로만 응답해 주세요.\n{user_payload}",
         text={"format": {"type": "json_object"}},
         max_output_tokens=_CALORIE_MAX_OUTPUT_TOKENS,
     )
