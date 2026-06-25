@@ -44,6 +44,29 @@ def collect_ingredient_values(ingredient_values: list[str]) -> list[str]:
     return [value.strip() for value in ingredient_values if value and value.strip()]
 
 
+def _ingredient_key(value: str) -> str:
+    return "".join((value or "").casefold().split())
+
+
+def find_overlapping_ingredients(
+    ingredients: list[str],
+    excluded_ingredients: list[str],
+) -> list[str]:
+    ingredient_keys = {
+        _ingredient_key(item): item
+        for item in ingredients
+        if _ingredient_key(item)
+    }
+    overlaps: list[str] = []
+    seen: set[str] = set()
+    for item in excluded_ingredients:
+        key = _ingredient_key(item)
+        if key and key in ingredient_keys and key not in seen:
+            seen.add(key)
+            overlaps.append(ingredient_keys[key])
+    return overlaps
+
+
 def get_ingredient_placeholder(index: int) -> str:
     if index < len(DEFAULT_INGREDIENT_PLACEHOLDERS):
         return DEFAULT_INGREDIENT_PLACEHOLDERS[index]
@@ -128,6 +151,34 @@ def _run_recommend(ingredient_values, exclude_values, category, state, *, is_ret
     state = state or INITIAL_STATE.copy()
     ingredients = collect_ingredient_values(ingredient_values)
     excluded_ingredients = collect_ingredient_values(exclude_values)
+    overlaps = find_overlapping_ingredients(ingredients, excluded_ingredients)
+    label = "다른 추천 받기" if is_retry else "추천"
+    user_content = (
+        f"{label} 요청 — 재료: {', '.join(ingredients) if ingredients else '없음'} "
+        f"/ 제외 재료: {', '.join(excluded_ingredients) if excluded_ingredients else '없음'} "
+        f"/ 카테고리: {category}"
+    )
+
+    if overlaps:
+        overlap_text = ", ".join(overlaps)
+        message = (
+            f"식재료와 제외 재료가 겹쳐요: {overlap_text}. "
+            "겹치는 재료를 한쪽에서 삭제한 뒤 다시 눌러주세요."
+        )
+        chat = [
+            {"role": "user", "content": user_content},
+            {"role": "assistant", "content": message},
+        ]
+        markdown = "\n".join(
+            [
+                "### 입력을 확인해 주세요",
+                "",
+                f"- 식재료와 제외 재료가 겹칩니다: {overlap_text}",
+                "- 겹치는 재료는 한쪽에서 삭제해야 추천을 진행할 수 있어요.",
+            ]
+        )
+        return chat, markdown, state
+
     previous = list(state.get("previous_recipe_urls", []))
 
     # 새 추천은 이력을 비우고 검색, 재추천은 이전 추천 URL을 제외한다.
@@ -153,12 +204,6 @@ def _run_recommend(ingredient_values, exclude_values, category, state, *, is_ret
     if is_retry and outcome.status != "SUCCESS":
         outcome.message = "더 보여드릴 새로운 레시피가 없어요. 재료나 카테고리를 바꿔보세요."
 
-    label = "다시 추천" if is_retry else "추천"
-    user_content = (
-        f"{label} 요청 — 재료: {', '.join(ingredients) if ingredients else '없음'} "
-        f"/ 제외 재료: {', '.join(excluded_ingredients) if excluded_ingredients else '없음'} "
-        f"/ 카테고리: {category}"
-    )
     chat = [
         {"role": "user", "content": user_content},
         {"role": "assistant", "content": outcome.message},

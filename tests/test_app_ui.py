@@ -7,8 +7,10 @@ from app import (
     add_ingredient_box,
     build_category_status,
     collect_ingredient_values,
+    find_overlapping_ingredients,
     get_exclude_placeholder,
     get_ingredient_placeholder,
+    recommend,
     remove_exclude_box,
     remove_ingredient_box,
     reset_state,
@@ -19,6 +21,12 @@ def test_collect_ingredient_values_keeps_one_box_one_item_without_comma_split():
     result = collect_ingredient_values(["김치, 밥", "", " 계란 "])
 
     assert result == ["김치, 밥", "계란"]
+
+
+def test_find_overlapping_ingredients_uses_exact_normalized_match():
+    result = find_overlapping_ingredients(["계란", "파"], [" 계 란 ", "양파"])
+
+    assert result == ["계란"]
 
 
 def test_default_ingredient_boxes_start_with_three_distinct_placeholders():
@@ -131,3 +139,21 @@ def test_build_category_status_mentions_category_and_ingredients():
     assert "한식 모드 설정 완료" in result
     assert "김치, 두부" in result
     assert "추천 시작 준비 완료" in result
+
+
+def test_recommend_rejects_overlap_between_ingredients_and_exclusions():
+    ingredients = ["계란", "파", *[""] * (MAX_INGREDIENT_BOXES - 2)]
+    exclusions = ["계란", *[""] * (MAX_EXCLUDE_BOXES - 1)]
+    state = {"previous_recipe_urls": ["old"], "last_valid_ingredients": ["계란"]}
+
+    chat, markdown, new_state = recommend(
+        *ingredients,
+        *exclusions,
+        "한식",
+        state,
+    )
+
+    assert "식재료와 제외 재료가 겹쳐요" in chat[-1]["content"]
+    assert "계란" in markdown
+    assert "추천을 진행할 수" in markdown
+    assert new_state is state
