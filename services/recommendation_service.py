@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from config import settings
 from models.schemas import CalorieEstimate, RecipeDetail
 from services.serving_scaler import scale_recipe_detail_to_one_serving
 from tools.calorie_estimator_tool import calorie_estimator_tool
@@ -261,8 +262,11 @@ class RecommendationService:
         matched: list[str],
         excluded_ingredients: list[str] | tuple[str, ...] = (),
     ) -> str:
-        lines = [
-            f"## 🍳 {detail.title}",
+        lines = [f"## 🍳 {detail.title}"]
+        # 썸네일은 저작권 게이트(ENABLE_RECIPE_CONTENT_DISPLAY) 뒤에서만 노출한다.
+        if detail.image_url and settings.enable_recipe_content_display:
+            lines.append(f"![{detail.title}]({detail.image_url})")
+        lines += [
             f"- 출처: 만개의레시피 ([원본 링크]({detail.source_url}))",
             f"- 인분: {detail.serving_text or '1인분'}",
             f"- 조리시간: {detail.cooking_time_minutes}분 이내",
