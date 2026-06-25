@@ -124,6 +124,39 @@ class RetryRecommendationToolTest(unittest.TestCase):
 
         self.assertEqual(result.recommendation.title, "계란찜")
 
+    def test_excluded_ingredient_skips_cached_candidate(self) -> None:
+        called = False
+
+        def search_pipeline(**_: object) -> list[RecommendationResult]:
+            nonlocal called
+            called = True
+            return []
+
+        result = retry_recommendation_tool(
+            {
+                "valid_ingredients": ["계란", "파"],
+                "excluded_ingredients": ["양파"],
+                "category": "한식",
+                "cached_candidates": [
+                    make_candidate(
+                        350,
+                        "양파 계란 볶음",
+                        ingredients=["계란", "양파"],
+                    ),
+                    make_candidate(
+                        351,
+                        "계란 파 볶음",
+                        ingredients=["계란", "파"],
+                    ),
+                ],
+            },
+            search_pipeline=search_pipeline,
+        )
+
+        self.assertEqual(result.status, "SUCCESS")
+        self.assertEqual(result.recommendation.title, "계란 파 볶음")
+        self.assertFalse(called)
+
     def test_exhausted_candidates_do_not_mutate_history(self) -> None:
         previous_url = "https://www.10000recipe.com/recipe/400"
 

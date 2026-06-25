@@ -39,6 +39,7 @@ class RecommendationOutcome:
     detail: RecipeDetail | None = None  # 1인분 환산본
     calorie: CalorieEstimate | None = None
     valid_ingredients: list[str] = field(default_factory=list)
+    excluded_ingredients: list[str] = field(default_factory=list)
     excluded_items: list[Any] = field(default_factory=list)
     matched_ingredients: list[str] = field(default_factory=list)
 
@@ -71,14 +72,19 @@ class RecommendationService:
         category: str = "상관없음",
         *,
         exclude_urls: list[str] | tuple[str, ...] = (),
+        exclude_ingredients: list[str] | tuple[str, ...] = (),
     ) -> RecommendationOutcome:
         ingredients = [i.strip() for i in ingredients if i and i.strip()]
+        excluded_ingredients = [
+            i.strip() for i in exclude_ingredients if i and i.strip()
+        ]
 
         valid, excluded = self._validate(ingredients)
         if not valid:
             return RecommendationOutcome(
                 status="NO_VALID_INGREDIENT",
                 message="유효한 식재료가 없어요. 재료를 다시 입력해 주세요.",
+                excluded_ingredients=excluded_ingredients,
                 excluded_items=excluded,
             )
 
@@ -94,6 +100,7 @@ class RecommendationService:
                 status="ERROR",
                 message=f"레시피 검색에 실패했어요. 잠시 후 다시 시도해 주세요. ({error})",
                 valid_ingredients=valid,
+                excluded_ingredients=excluded_ingredients,
                 excluded_items=excluded,
             )
 
@@ -102,6 +109,7 @@ class RecommendationService:
                 status="NO_CANDIDATE",
                 message="검색 결과가 없어요. 카테고리를 '상관없음'으로 바꾸거나 재료를 더 넣어보세요.",
                 valid_ingredients=valid,
+                excluded_ingredients=excluded_ingredients,
                 excluded_items=excluded,
             )
 
@@ -112,15 +120,27 @@ class RecommendationService:
             except ValueError:
                 continue
 
-        passing = self._scrape_and_filter(candidates, valid, excluded_keys)
+        passing = self._scrape_and_filter(
+            candidates,
+            valid,
+            excluded_keys,
+            excluded_ingredients,
+        )
         if not passing:
+            exclude_hint = (
+                f" 제외 재료({', '.join(excluded_ingredients)})가 들어간 레시피도 제외했어요."
+                if excluded_ingredients
+                else ""
+            )
             return RecommendationOutcome(
                 status="NO_MATCH",
                 message=(
                     "조건(30분 이내·초급/아무나)에 맞는 레시피를 찾지 못했어요. "
                     "재료를 바꾸거나 카테고리를 완화해 보세요."
+                    f"{exclude_hint}"
                 ),
                 valid_ingredients=valid,
+                excluded_ingredients=excluded_ingredients,
                 excluded_items=excluded,
             )
 
@@ -135,11 +155,18 @@ class RecommendationService:
         return RecommendationOutcome(
             status="SUCCESS",
             message="추천을 찾았어요!",
-            card_markdown=self._render_card(scaled, calorie, valid, matched),
+            card_markdown=self._render_card(
+                scaled,
+                calorie,
+                valid,
+                matched,
+                excluded_ingredients,
+            ),
             recipe_url=str(detail.source_url),
             detail=scaled,
             calorie=calorie,
             valid_ingredients=valid,
+            excluded_ingredients=excluded_ingredients,
             excluded_items=excluded,
             matched_ingredients=matched,
         )
@@ -157,7 +184,11 @@ class RecommendationService:
             return ingredients, []
 
     def _scrape_and_filter(
-        self, candidates, valid: list[str], excluded_keys: set[str] = frozenset()
+        self,
+        candidates,
+        valid: list[str],
+        excluded_keys: set[str] = frozenset(),
+        excluded_ingredients: list[str] | tuple[str, ...] = (),
     ) -> list[tuple[int, RecipeDetail]]:
         passing: list[tuple[int, RecipeDetail]] = []
         for candidate in candidates[: self.max_scrape]:
@@ -176,6 +207,8 @@ class RecommendationService:
             if (detail.cooking_time_minutes or 999) > MAX_COOKING_MINUTES:
                 continue
             if detail.difficulty not in ALLOWED_DIFFICULTIES:
+                continue
+            if self._has_excluded_ingredient(detail, excluded_ingredients):
                 continue
             passing.append((len(self._matched_ingredients(detail, valid)), detail))
         return passing
@@ -200,6 +233,24 @@ class RecommendationService:
                 matched.append(item)
         return matched
 
+    @staticmethod
+    def _has_excluded_ingredient(
+        detail: RecipeDetail,
+        excluded_ingredients: list[str] | tuple[str, ...],
+    ) -> bool:
+        recipe_names = [_norm(i.name) for i in detail.ingredients]
+        for item in excluded_ingredients:
+            key = _norm(item)
+            if not key:
+                continue
+            if len(key) == 1:
+                if key in recipe_names:
+                    return True
+                continue
+            if any(key in name for name in recipe_names):
+                return True
+        return False
+
     # -- rendering --------------------------------------------------------
 
     @staticmethod
@@ -208,6 +259,7 @@ class RecommendationService:
         calorie: CalorieEstimate | None,
         valid: list[str],
         matched: list[str],
+        excluded_ingredients: list[str] | tuple[str, ...] = (),
     ) -> str:
         lines = [
             f"## 🍳 {detail.title}",
@@ -216,6 +268,7 @@ class RecommendationService:
             f"- 조리시간: {detail.cooking_time_minutes}분 이내",
             f"- 난이도: {detail.difficulty}",
             f"- 활용 가능한 보유 재료: {', '.join(matched) if matched else '없음'}",
+            f"- 제외한 재료: {', '.join(excluded_ingredients) if excluded_ingredients else '없음'}",
             "",
             "### 재료 (1인분 기준 환산)",
         ]

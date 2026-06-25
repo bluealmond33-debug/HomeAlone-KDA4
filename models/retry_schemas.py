@@ -68,6 +68,7 @@ class RetryRecommendationInput(BaseModel):
 
     valid_ingredients: list[str] = Field(min_length=1, max_length=5)
     category: Category
+    excluded_ingredients: list[str] = Field(default_factory=list, max_length=20)
     previous_recipe_urls: list[str] = Field(default_factory=list)
     previous_menu_names: list[str] = Field(default_factory=list)
     cached_candidates: list[RecommendationResult] = Field(default_factory=list)
@@ -89,6 +90,23 @@ class RetryRecommendationInput(BaseModel):
                 cleaned.append(item)
         if not cleaned:
             raise ValueError("유효한 식재료가 1개 이상 필요합니다.")
+        return cleaned
+
+    @field_validator("excluded_ingredients")
+    @classmethod
+    def clean_excluded_ingredients(cls, values: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            item = value.strip()
+            if not item:
+                continue
+            if len(item) > 30:
+                raise ValueError("제외 재료는 항목당 최대 30자입니다.")
+            key = item.casefold()
+            if key not in seen:
+                seen.add(key)
+                cleaned.append(item)
         return cleaned
 
     @field_validator("previous_recipe_urls")

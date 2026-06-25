@@ -88,10 +88,27 @@ def _normalize_ingredient(name: str) -> str:
     return " ".join(normalized.split())
 
 
+def _contains_excluded_ingredient(
+    candidate_ingredients: set[str],
+    excluded_ingredients: set[str],
+) -> bool:
+    for excluded in excluded_ingredients:
+        if not excluded:
+            continue
+        if len(excluded) == 1:
+            if excluded in candidate_ingredients:
+                return True
+            continue
+        if any(excluded in ingredient for ingredient in candidate_ingredients):
+            return True
+    return False
+
+
 def _meets_latest_conditions(
     candidate: RecommendationResult,
     *,
     valid_ingredients: set[str],
+    excluded_ingredients: set[str],
     category: Category,
 ) -> bool:
     """Recheck every cache/search result against PRD 6.2 mandatory rules.
@@ -111,6 +128,8 @@ def _meets_latest_conditions(
     candidate_ingredients = {
         _normalize_ingredient(item) for item in candidate.ingredient_names
     }
+    if _contains_excluded_ingredient(candidate_ingredients, excluded_ingredients):
+        return False
     return bool(valid_ingredients & candidate_ingredients)
 
 
@@ -212,6 +231,9 @@ def retry_recommendation_tool(
     valid_ingredients = {
         _normalize_ingredient(item) for item in request.valid_ingredients
     }
+    excluded_ingredients = {
+        _normalize_ingredient(item) for item in request.excluded_ingredients
+    }
 
     cache = _remove_historical_and_duplicate_candidates(
         request.cached_candidates,
@@ -222,6 +244,7 @@ def retry_recommendation_tool(
         if _meets_latest_conditions(
             candidate,
             valid_ingredients=valid_ingredients,
+            excluded_ingredients=excluded_ingredients,
             category=request.category,
         ):
             return _build_success_output(
@@ -267,6 +290,7 @@ def retry_recommendation_tool(
         if _meets_latest_conditions(
             candidate,
             valid_ingredients=valid_ingredients,
+            excluded_ingredients=excluded_ingredients,
             category=request.category,
         ):
             return _build_success_output(

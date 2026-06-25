@@ -126,6 +126,44 @@ def test_retry_excludes_previously_recommended_url():
     assert outcome.recipe_url.endswith("/recipe/102")
 
 
+def test_excluded_ingredient_filters_recipe_before_recommendation():
+    service = _service(
+        validator_fn=_validator(["계란", "파"]),
+        search_fn=_search([_candidate(201, "양파 계란 볶음"), _candidate(202, "계란 파 볶음")]),
+        scrape_fn=_scraper(
+            {
+                "201": _detail(
+                    201,
+                    "양파 계란 볶음",
+                    ingredients=[
+                        {"name": "계란", "amount": "2개"},
+                        {"name": "양파", "amount": "1/2개"},
+                    ],
+                ),
+                "202": _detail(
+                    202,
+                    "계란 파 볶음",
+                    ingredients=[
+                        {"name": "계란", "amount": "2개"},
+                        {"name": "파", "amount": "1대"},
+                    ],
+                ),
+            }
+        ),
+    )
+
+    outcome = service.recommend(
+        ["계란", "파"],
+        "한식",
+        exclude_ingredients=["양파"],
+    )
+
+    assert outcome.status == "SUCCESS"
+    assert outcome.detail.title == "계란 파 볶음"
+    assert outcome.recipe_url.endswith("/recipe/202")
+    assert "제외한 재료: 양파" in outcome.card_markdown
+
+
 def test_no_valid_ingredient_short_circuits():
     outcome = _service(validator_fn=_validator([])).recommend(["핸드폰"], "한식")
     assert outcome.status == "NO_VALID_INGREDIENT"

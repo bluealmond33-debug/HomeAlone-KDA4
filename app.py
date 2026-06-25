@@ -13,13 +13,24 @@ _service = RecommendationService()
 
 MAX_INGREDIENT_BOXES = 20
 INITIAL_INGREDIENT_BOXES = 3
+MAX_EXCLUDE_BOXES = 20
+INITIAL_EXCLUDE_BOXES = 1
 DEFAULT_INGREDIENT_PLACEHOLDERS = [
     "식재료만 입력해주세요(예시: 김치)",
     "식재료만 입력해주세요(예시: 두부)",
     "식재료만 입력해주세요(예시: 계란)",
 ]
+DEFAULT_EXCLUDE_PLACEHOLDERS = [
+    "추천에서 제외할 재료(예시: 양파)",
+    "추천에서 제외할 재료(예시: 고수)",
+    "추천에서 제외할 재료(예시: 버섯)",
+]
 CATEGORY_CHOICES = ["한식", "중식", "일식", "양식", "분식", "상관없음"]
-INITIAL_STATE = {"previous_recipe_urls": [], "last_valid_ingredients": []}
+INITIAL_STATE = {
+    "previous_recipe_urls": [],
+    "last_valid_ingredients": [],
+    "last_excluded_ingredients": [],
+}
 INITIAL_READY_MESSAGE = "기본 재료 칸 3개가 준비됐어요. 재료를 넣고 카테고리를 골라주세요."
 
 
@@ -37,6 +48,12 @@ def get_ingredient_placeholder(index: int) -> str:
     if index < len(DEFAULT_INGREDIENT_PLACEHOLDERS):
         return DEFAULT_INGREDIENT_PLACEHOLDERS[index]
     return "식재료만 입력해주세요(예시: 감자)"
+
+
+def get_exclude_placeholder(index: int) -> str:
+    if index < len(DEFAULT_EXCLUDE_PLACEHOLDERS):
+        return DEFAULT_EXCLUDE_PLACEHOLDERS[index]
+    return "추천에서 제외할 재료(예시: 양파)"
 
 
 def build_summary(ingredients: list[str], category: str, validation_result) -> str:
@@ -65,6 +82,12 @@ def build_next_box_status(visible_count: int) -> str:
     return f"재료 칸 {visible_count}개 준비 완료. 다음 재료도 한 칸에 하나씩 넣어주세요."
 
 
+def build_next_exclude_box_status(visible_count: int) -> str:
+    if visible_count >= MAX_EXCLUDE_BOXES:
+        return "제외 재료 칸 20개가 모두 열렸어요."
+    return f"제외 재료 칸 {visible_count}개 준비 완료. 없는 재료를 한 칸에 하나씩 넣어주세요."
+
+
 def build_category_status(*args) -> str:
     ingredient_values = list(args[:-1])
     category = args[-1] or "상관없음"
@@ -88,10 +111,11 @@ def _outcome_markdown(outcome) -> str:
     return "\n".join(lines)
 
 
-def _run_recommend(ingredient_values, category, state, *, is_retry):
+def _run_recommend(ingredient_values, exclude_values, category, state, *, is_retry):
     category = category or "상관없음"
     state = state or INITIAL_STATE.copy()
     ingredients = collect_ingredient_values(ingredient_values)
+    excluded_ingredients = collect_ingredient_values(exclude_values)
     previous = list(state.get("previous_recipe_urls", []))
 
     # 새 추천은 이력을 비우고 검색, 재추천은 이전 추천 URL을 제외한다.
@@ -99,6 +123,7 @@ def _run_recommend(ingredient_values, category, state, *, is_retry):
         ingredients,
         category,
         exclude_urls=previous if is_retry else [],
+        exclude_ingredients=excluded_ingredients,
     )
 
     urls = previous if is_retry else []
@@ -109,6 +134,7 @@ def _run_recommend(ingredient_values, category, state, *, is_retry):
         **INITIAL_STATE,
         **state,
         "last_valid_ingredients": outcome.valid_ingredients,
+        "last_excluded_ingredients": excluded_ingredients,
         "previous_recipe_urls": urls,
     }
 
@@ -117,7 +143,9 @@ def _run_recommend(ingredient_values, category, state, *, is_retry):
 
     label = "다시 추천" if is_retry else "추천"
     user_content = (
-        f"{label} 요청 — 재료: {', '.join(ingredients) if ingredients else '없음'} / 카테고리: {category}"
+        f"{label} 요청 — 재료: {', '.join(ingredients) if ingredients else '없음'} "
+        f"/ 제외 재료: {', '.join(excluded_ingredients) if excluded_ingredients else '없음'} "
+        f"/ 카테고리: {category}"
     )
     chat = [
         {"role": "user", "content": user_content},
@@ -127,11 +155,27 @@ def _run_recommend(ingredient_values, category, state, *, is_retry):
 
 
 def recommend(*args):
-    return _run_recommend(list(args[:-2]), args[-2], args[-1], is_retry=False)
+    ingredient_values = list(args[:MAX_INGREDIENT_BOXES])
+    exclude_values = list(args[MAX_INGREDIENT_BOXES:-2])
+    return _run_recommend(
+        ingredient_values,
+        exclude_values,
+        args[-2],
+        args[-1],
+        is_retry=False,
+    )
 
 
 def retry(*args):
-    return _run_recommend(list(args[:-2]), args[-2], args[-1], is_retry=True)
+    ingredient_values = list(args[:MAX_INGREDIENT_BOXES])
+    exclude_values = list(args[MAX_INGREDIENT_BOXES:-2])
+    return _run_recommend(
+        ingredient_values,
+        exclude_values,
+        args[-2],
+        args[-1],
+        is_retry=True,
+    )
 
 
 def add_ingredient_box(visible_count: int):
@@ -141,19 +185,33 @@ def add_ingredient_box(visible_count: int):
     return [new_count, next_button_update, *textbox_updates, build_next_box_status(new_count)]
 
 
+def add_exclude_box(visible_count: int):
+    new_count = min(MAX_EXCLUDE_BOXES, visible_count + 1)
+    next_button_update = _update(interactive=new_count < MAX_EXCLUDE_BOXES)
+    textbox_updates = [_update(visible=index < new_count) for index in range(MAX_EXCLUDE_BOXES)]
+    return [new_count, next_button_update, *textbox_updates, build_next_exclude_box_status(new_count)]
+
+
 def reset_state():
     textbox_updates = [
         _update(value="", visible=index < INITIAL_INGREDIENT_BOXES)
         for index in range(MAX_INGREDIENT_BOXES)
     ]
+    exclude_updates = [
+        _update(value="", visible=index < INITIAL_EXCLUDE_BOXES)
+        for index in range(MAX_EXCLUDE_BOXES)
+    ]
     return [
         *textbox_updates,
+        *exclude_updates,
         "상관없음",
         [],
         "",
         INITIAL_READY_MESSAGE,
         INITIAL_STATE.copy(),
         INITIAL_INGREDIENT_BOXES,
+        _update(interactive=True),
+        INITIAL_EXCLUDE_BOXES,
         _update(interactive=True),
     ]
 
@@ -165,6 +223,7 @@ if gr is not None:
         reset_btn = gr.Button("초기화")
 
         visible_count = gr.State(INITIAL_INGREDIENT_BOXES)
+        exclude_visible_count = gr.State(INITIAL_EXCLUDE_BOXES)
         ingredient_boxes = []
         for index in range(MAX_INGREDIENT_BOXES):
             ingredient_boxes.append(
@@ -176,6 +235,18 @@ if gr is not None:
             )
 
         next_btn = gr.Button("다음")
+        gr.Markdown("추천에서 빼고 싶은 재료가 있으면 아래에 입력하세요.")
+        exclude_boxes = []
+        for index in range(MAX_EXCLUDE_BOXES):
+            exclude_boxes.append(
+                gr.Textbox(
+                    label=f"제외 재료 {index + 1}",
+                    placeholder=get_exclude_placeholder(index),
+                    visible=index < INITIAL_EXCLUDE_BOXES,
+                )
+            )
+
+        exclude_next_btn = gr.Button("제외 재료 추가")
         category = gr.Dropdown(
             choices=CATEGORY_CHOICES,
             value="상관없음",
@@ -195,6 +266,11 @@ if gr is not None:
             inputs=[visible_count],
             outputs=[visible_count, next_btn, *ingredient_boxes, ready_md],
         )
+        exclude_next_btn.click(
+            add_exclude_box,
+            inputs=[exclude_visible_count],
+            outputs=[exclude_visible_count, exclude_next_btn, *exclude_boxes, ready_md],
+        )
         category.change(
             build_category_status,
             inputs=[*ingredient_boxes, category],
@@ -202,17 +278,29 @@ if gr is not None:
         )
         recommend_btn.click(
             recommend,
-            inputs=[*ingredient_boxes, category, state],
+            inputs=[*ingredient_boxes, *exclude_boxes, category, state],
             outputs=[chatbot, result_md, state],
         )
         retry_btn.click(
             retry,
-            inputs=[*ingredient_boxes, category, state],
+            inputs=[*ingredient_boxes, *exclude_boxes, category, state],
             outputs=[chatbot, result_md, state],
         )
         reset_btn.click(
             reset_state,
-            outputs=[*ingredient_boxes, category, chatbot, result_md, ready_md, state, visible_count, next_btn],
+            outputs=[
+                *ingredient_boxes,
+                *exclude_boxes,
+                category,
+                chatbot,
+                result_md,
+                ready_md,
+                state,
+                visible_count,
+                next_btn,
+                exclude_visible_count,
+                exclude_next_btn,
+            ],
         )
 else:  # pragma: no cover - runtime UI unavailable in test env
     demo = None
