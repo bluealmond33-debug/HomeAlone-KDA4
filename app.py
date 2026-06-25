@@ -6,7 +6,10 @@ except ModuleNotFoundError:  # pragma: no cover - test env fallback
     gr = None
 
 from config import settings
+from services.recommendation_service import RecommendationService
 from tools.ingredient_validator_tool import ingredient_validator_tool
+
+_service = RecommendationService()
 
 MAX_INGREDIENT_BOXES = 20
 INITIAL_INGREDIENT_BOXES = 3
@@ -74,34 +77,48 @@ def build_category_status(*args) -> str:
     return f"{category} 모드 설정 완료. {ingredient_text}로 추천 시작 준비 완료입니다."
 
 
+def _outcome_markdown(outcome) -> str:
+    if outcome.status == "SUCCESS":
+        return outcome.card_markdown
+    lines = [f"### {outcome.message}"]
+    if outcome.excluded_items:
+        lines.append("")
+        lines.append("- 제외된 입력:")
+        lines += [f"  - {item.item}: {item.reason}" for item in outcome.excluded_items]
+    return "\n".join(lines)
+
+
 def recommend(*args):
     ingredient_values = list(args[:-2])
-    category = args[-2]
+    category = args[-2] or "상관없음"
     state = args[-1] or INITIAL_STATE.copy()
 
     ingredients = collect_ingredient_values(ingredient_values)
-    validation = ingredient_validator_tool(
-        {"ingredients": ingredients},
-        persist_new_ingredients=settings.enable_ingredient_cache_write,
+    outcome = _service.recommend(
+        ingredients,
+        category,
+        exclude_urls=state.get("previous_recipe_urls", []),
     )
-    state = {
+
+    new_state = {
         **INITIAL_STATE,
         **state,
-        "last_valid_ingredients": validation.valid_ingredients,
+        "last_valid_ingredients": outcome.valid_ingredients,
     }
+    if outcome.recipe_url:
+        urls = list(state.get("previous_recipe_urls", []))
+        if outcome.recipe_url not in urls:
+            urls.append(outcome.recipe_url)
+        new_state["previous_recipe_urls"] = urls
 
-    user_content = f"재료: {', '.join(ingredients) if ingredients else '없음'} / 카테고리: {category}"
-    if validation.valid_ingredients:
-        assistant_content = "검증 완료. 냉장고 털이 준비가 끝났어요. 다음 검색 단계로 넘길 수 있습니다."
-    else:
-        assistant_content = "유효 재료가 없어 다음 Tool은 호출하지 않았어요."
-
+    user_content = (
+        f"재료: {', '.join(ingredients) if ingredients else '없음'} / 카테고리: {category}"
+    )
     chat = [
         {"role": "user", "content": user_content},
-        {"role": "assistant", "content": assistant_content},
+        {"role": "assistant", "content": outcome.message},
     ]
-    summary = build_summary(ingredients, category, validation)
-    return chat, summary, state
+    return chat, _outcome_markdown(outcome), new_state
 
 
 def add_ingredient_box(visible_count: int):
