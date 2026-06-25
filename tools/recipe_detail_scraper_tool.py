@@ -144,7 +144,11 @@ def _extract_ingredients(
         name = _text_or_none(li.select_one(".ingre_list_name"))
         if not name:
             continue
-        amount = _text_or_none(li.select_one(".ingre_list_value"))
+        # Live 만개의레시피 puts the amount in ``.ingre_list_ea``; older/sample
+        # markup uses ``.ingre_list_value``.
+        amount = _text_or_none(li.select_one(".ingre_list_ea")) or _text_or_none(
+            li.select_one(".ingre_list_value")
+        )
         items.append(IngredientAmount(name=name, amount=amount))
     if items:
         return items
