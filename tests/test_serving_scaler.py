@@ -17,6 +17,8 @@ from services.serving_scaler import (
         ("200g", 4, "50g"),
         ("100g", 2, "50g"),
         ("500ml", 4, "125ml"),
+        # Large non-whole quantities round to an integer instead of "33과 1/3g".
+        ("100g", 3, "33g"),
         # Counts and cups render as cooking-friendly fractions.
         ("1컵", 4, "1/4컵"),
         ("2개", 2, "1개"),

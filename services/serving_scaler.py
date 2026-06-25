@@ -91,8 +91,15 @@ def _parse_leading_quantity(text: str) -> tuple[Fraction, str] | None:
 
 
 def _format_quantity(value: Fraction) -> str:
-    """Render a quantity as an integer, a simple fraction, or a mixed fraction."""
+    """Render a quantity as an integer, a simple fraction, or a mixed fraction.
+
+    Large quantities (>= 10, typically grams/ml) round to a whole number because
+    ``33g`` reads better than ``33과 1/3g``; small quantities keep cooking-friendly
+    fractions (``1/4컵``, ``1과 1/2큰술``).
+    """
     value = value.limit_denominator(8)
+    if value >= 10:
+        return str(round(value))
     if value.denominator == 1:
         return str(value.numerator)
     whole, remainder = divmod(value.numerator, value.denominator)

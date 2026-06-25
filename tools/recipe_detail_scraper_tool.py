@@ -140,16 +140,23 @@ def _extract_ingredients(
     soup: BeautifulSoup, ld: dict[str, Any] | None
 ) -> list[IngredientAmount]:
     items: list[IngredientAmount] = []
-    for li in soup.select(".ready_ingre3 li"):
-        name = _text_or_none(li.select_one(".ingre_list_name"))
-        if not name:
-            continue
-        # Live 만개의레시피 puts the amount in ``.ingre_list_ea``; older/sample
-        # markup uses ``.ingre_list_value``.
-        amount = _text_or_none(li.select_one(".ingre_list_ea")) or _text_or_none(
-            li.select_one(".ingre_list_value")
-        )
-        items.append(IngredientAmount(name=name, amount=amount))
+    # Scope to the real ingredient container. 만개의레시피 renders 조리도구(tools)
+    # in a *separate* ``.ready_ingre3`` block without this id, so scoping here
+    # keeps 도마/프라이팬 등 도구가 재료 목록에 섞이지 않게 한다.
+    container = soup.select_one("#divConfirmedMaterialArea") or soup.select_one(
+        ".ready_ingre3"
+    )
+    if container is not None:
+        for li in container.select("li"):
+            name = _text_or_none(li.select_one(".ingre_list_name"))
+            if not name:
+                continue
+            # Live 만개의레시피 puts the amount in ``.ingre_list_ea``; older/sample
+            # markup uses ``.ingre_list_value``.
+            amount = _text_or_none(li.select_one(".ingre_list_ea")) or _text_or_none(
+                li.select_one(".ingre_list_value")
+            )
+            items.append(IngredientAmount(name=name, amount=amount))
     if items:
         return items
 
