@@ -5,7 +5,7 @@ Pydantic 2가 필요하다.
 
 ## 파일
 
-- `models/schemas.py`: 입력, 추천 결과, 출력 Pydantic 계약
+- `models/retry_schemas.py`: 입력, 추천 결과, 출력 Pydantic 계약
 - `tools/retry_recommendation_tool.py`: 캐시 우선 재추천과 중복 차단
 - `tests/test_retry_recommendation_tool.py`: 외부 API를 사용하지 않는 단위 테스트
 
@@ -19,7 +19,7 @@ python3 -m unittest -v tests.test_retry_recommendation_tool
 ## 서비스 계층 연결 예시
 
 ```python
-from models.schemas import RecommendationResult, RetryRecommendationInput
+from models.retry_schemas import RecommendationResult, RetryRecommendationInput
 from tools.retry_recommendation_tool import retry_recommendation_tool
 
 
@@ -63,3 +63,5 @@ print(result.model_dump(mode="json"))
 `RetryPipelineError`는 외부 검색 장애 또는 파이프라인 미설정을 뜻한다.
 이 오류를 `NO_NEW_CANDIDATE`로 바꾸면 사용자가 조건 문제로 오해하므로 서비스
 계층에서 별도의 일시적 오류 메시지로 처리해야 한다.
+
+재추천 결과는 최신 기획 기준에 따라 `servings == 1`인 1인분 후보만 허용한다.

@@ -4,7 +4,7 @@ import unittest
 
 from pydantic import ValidationError
 
-from models.schemas import RecommendationResult, RetryRecommendationInput
+from models.retry_schemas import RecommendationResult, RetryRecommendationInput
 from tools.retry_recommendation_tool import (
     RetryPipelineError,
     normalize_recipe_url,
@@ -155,7 +155,7 @@ class RetryRecommendationToolTest(unittest.TestCase):
                     "title": "두부조림",
                     "source_url": "https://www.10000recipe.com/recipe/501",
                     "category": "한식",
-                    "servings": 2,
+                    "servings": 1,
                     "cooking_time_minutes": 30,
                     "difficulty": "아무나",
                     "ingredient_names": ["두부"],
@@ -170,6 +170,22 @@ class RetryRecommendationToolTest(unittest.TestCase):
         self.assertEqual(result.status, "SUCCESS")
         self.assertEqual(result.recommendation.title, "두부조림")
         self.assertEqual(len(result.warnings), 1)
+
+    def test_two_serving_candidate_is_excluded_on_retry(self) -> None:
+        def search_pipeline(**_: object) -> list[RecommendationResult]:
+            return [
+                make_candidate(601, "2인분 두부조림", servings=2, ingredients=["두부"]),
+                make_candidate(602, "1인분 두부조림", servings=1, ingredients=["두부"]),
+            ]
+
+        result = retry_recommendation_tool(
+            {"valid_ingredients": ["두부"], "category": "한식"},
+            search_pipeline=search_pipeline,
+        )
+
+        self.assertEqual(result.status, "SUCCESS")
+        self.assertEqual(result.recommendation.title, "1인분 두부조림")
+        self.assertEqual(result.recommendation.servings, 1)
 
     def test_pipeline_failure_is_not_reported_as_candidate_exhaustion(self) -> None:
         def broken_pipeline(**_: object) -> list[RecommendationResult]:

@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 
 from pydantic import ValidationError
 
-from models.schemas import (
+from models.retry_schemas import (
     Category,
     RecommendationResult,
     RetryRecommendationInput,
@@ -98,7 +98,7 @@ def _meets_latest_conditions(
 
     if category != "상관없음" and candidate.category != category:
         return False
-    if candidate.servings not in {1, 2}:
+    if candidate.servings != 1:
         return False
     if candidate.cooking_time_minutes > 30:
         return False
