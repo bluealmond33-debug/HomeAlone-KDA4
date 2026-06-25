@@ -115,6 +115,17 @@ def test_multi_serving_recipe_is_not_filtered_out():
     assert "원래 6인분" in outcome.detail.serving_text
 
 
+def test_retry_excludes_previously_recommended_url():
+    # 재추천: 101을 제외하면 102가 추천돼야 한다.
+    outcome = _service().recommend(
+        ["김치", "밥"],
+        "한식",
+        exclude_urls=["https://www.10000recipe.com/recipe/101"],
+    )
+    assert outcome.status == "SUCCESS"
+    assert outcome.recipe_url.endswith("/recipe/102")
+
+
 def test_no_valid_ingredient_short_circuits():
     outcome = _service(validator_fn=_validator([])).recommend(["핸드폰"], "한식")
     assert outcome.status == "NO_VALID_INGREDIENT"

@@ -22,6 +22,7 @@ from tools.calorie_estimator_tool import calorie_estimator_tool
 from tools.ingredient_validator_tool import ingredient_validator_tool
 from tools.recipe_detail_scraper_tool import recipe_detail_scraper_tool
 from tools.recipe_search_tool import recipe_search_tool
+from tools.retry_recommendation_tool import normalize_recipe_url
 
 ALLOWED_DIFFICULTIES = frozenset({"초급", "아무나"})
 MAX_COOKING_MINUTES = 30
@@ -104,7 +105,14 @@ class RecommendationService:
                 excluded_items=excluded,
             )
 
-        passing = self._scrape_and_filter(candidates, valid)
+        excluded_keys: set[str] = set()
+        for raw in exclude_urls:
+            try:
+                excluded_keys.add(normalize_recipe_url(raw))
+            except ValueError:
+                continue
+
+        passing = self._scrape_and_filter(candidates, valid, excluded_keys)
         if not passing:
             return RecommendationOutcome(
                 status="NO_MATCH",
@@ -149,10 +157,16 @@ class RecommendationService:
             return ingredients, []
 
     def _scrape_and_filter(
-        self, candidates, valid: list[str]
+        self, candidates, valid: list[str], excluded_keys: set[str] = frozenset()
     ) -> list[tuple[int, RecipeDetail]]:
         passing: list[tuple[int, RecipeDetail]] = []
         for candidate in candidates[: self.max_scrape]:
+            # 재추천: 이미 추천한 URL은 건너뛴다(검색이 못 거른 경우 대비).
+            try:
+                if normalize_recipe_url(str(candidate.url)) in excluded_keys:
+                    continue
+            except ValueError:
+                continue
             try:
                 detail = self.scrape_fn(str(candidate.url), require_complete=True)
             except Exception:

@@ -88,37 +88,50 @@ def _outcome_markdown(outcome) -> str:
     return "\n".join(lines)
 
 
-def recommend(*args):
-    ingredient_values = list(args[:-2])
-    category = args[-2] or "상관없음"
-    state = args[-1] or INITIAL_STATE.copy()
-
+def _run_recommend(ingredient_values, category, state, *, is_retry):
+    category = category or "상관없음"
+    state = state or INITIAL_STATE.copy()
     ingredients = collect_ingredient_values(ingredient_values)
+    previous = list(state.get("previous_recipe_urls", []))
+
+    # 새 추천은 이력을 비우고 검색, 재추천은 이전 추천 URL을 제외한다.
     outcome = _service.recommend(
         ingredients,
         category,
-        exclude_urls=state.get("previous_recipe_urls", []),
+        exclude_urls=previous if is_retry else [],
     )
+
+    urls = previous if is_retry else []
+    if outcome.recipe_url and outcome.recipe_url not in urls:
+        urls.append(outcome.recipe_url)
 
     new_state = {
         **INITIAL_STATE,
         **state,
         "last_valid_ingredients": outcome.valid_ingredients,
+        "previous_recipe_urls": urls,
     }
-    if outcome.recipe_url:
-        urls = list(state.get("previous_recipe_urls", []))
-        if outcome.recipe_url not in urls:
-            urls.append(outcome.recipe_url)
-        new_state["previous_recipe_urls"] = urls
 
+    if is_retry and outcome.status != "SUCCESS":
+        outcome.message = "더 보여드릴 새로운 레시피가 없어요. 재료나 카테고리를 바꿔보세요."
+
+    label = "다시 추천" if is_retry else "추천"
     user_content = (
-        f"재료: {', '.join(ingredients) if ingredients else '없음'} / 카테고리: {category}"
+        f"{label} 요청 — 재료: {', '.join(ingredients) if ingredients else '없음'} / 카테고리: {category}"
     )
     chat = [
         {"role": "user", "content": user_content},
         {"role": "assistant", "content": outcome.message},
     ]
     return chat, _outcome_markdown(outcome), new_state
+
+
+def recommend(*args):
+    return _run_recommend(list(args[:-2]), args[-2], args[-1], is_retry=False)
+
+
+def retry(*args):
+    return _run_recommend(list(args[:-2]), args[-2], args[-1], is_retry=True)
 
 
 def add_ingredient_box(visible_count: int):
@@ -171,6 +184,7 @@ if gr is not None:
         ready_md = gr.Markdown(INITIAL_READY_MESSAGE)
 
         recommend_btn = gr.Button("냉장고 털기 시작")
+        retry_btn = gr.Button("다시 추천")
 
         chatbot = gr.Chatbot(label="대화")
         result_md = gr.Markdown()
@@ -188,6 +202,11 @@ if gr is not None:
         )
         recommend_btn.click(
             recommend,
+            inputs=[*ingredient_boxes, category, state],
+            outputs=[chatbot, result_md, state],
+        )
+        retry_btn.click(
+            retry,
             inputs=[*ingredient_boxes, category, state],
             outputs=[chatbot, result_md, state],
         )
