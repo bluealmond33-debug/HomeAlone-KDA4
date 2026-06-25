@@ -71,10 +71,10 @@ HomeAlone-KDA4/
 
 ## 역할 분담 초안
 
-- 차미래: `ingredient_validator_tool` + 검색 정책/통합 조율
-- 김민기: `recipe_search_tool` + 입력/상태 UI
-- 박정운: `recipe_detail_scraper_tool` + fixture/파싱 테스트
-- 안치수: `calorie_estimator_tool`, `retry_recommendation_tool` + 통합/배포
+- 김민기: `ingredient_validator_tool` + 입력/상태 UI
+- 차미래: `recipe_search_tool` + 검색 정책/통합 조율
+- 안치수: `calorie_estimator_tool` + `recipe_detail_scraper_tool` 통합/배포
+- 박정운: `retry_recommendation_tool` + fixture/파싱 테스트
 
 ## 참고
 
